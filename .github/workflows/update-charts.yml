@@ -14,7 +14,13 @@ jobs:
     permissions:
       contents: write
       packages: write
+      pages: write # Add this permission
+      id-token: write # Add this permission
     runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+
     steps:
       - name: Checkout
         uses: actions/checkout@v3
@@ -31,29 +37,64 @@ jobs:
         uses: azure/setup-helm@v4
         with:
           version: v3.13.3
-        env:
-          token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Create gh-pages branch if not exists
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Setup chart-releaser
         run: |
-          git fetch --all
-          if ! git branch -r | grep -q "origin/gh-pages"; then
-            git checkout --orphan gh-pages
-            git reset --hard
-            git commit --allow-empty -m "Create gh-pages branch"
-            git remote set-url origin "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
-            git push origin gh-pages
-            git checkout main
-          fi
+          wget https://github.com/helm/chart-releaser/releases/download/v1.6.0/chart-releaser_1.6.0_linux_amd64.tar.gz
+          tar xzvf chart-releaser_1.6.0_linux_amd64.tar.gz
+          sudo mv cr /usr/local/bin/cr
 
-      - name: Run chart-releaser
-        uses: helm/chart-releaser-action@v1.6.0
+      - name: Package and Release Charts
         env:
           CR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          CR_SKIP_EXISTING: true
-          CR_PACKAGE_PATH: .deploy
-          CR_INDEX_PATH: index.yaml
-          CR_RELEASE_NAME_TEMPLATE: "{{ .Name }}-{{ .Version }}"
-          CR_PAGES_BRANCH: gh-pages
+        run: |
+          mkdir -p .cr-release-packages
+          mkdir -p .cr-index
+
+          for chart in $(find . -type f -name Chart.yaml); do
+            chart_dir=$(dirname $chart)
+            helm package $chart_dir --destination .cr-release-packages
+          done
+
+          cr upload --owner $(cut -d '/' -f 1 <<< "$GITHUB_REPOSITORY") \
+                   --git-repo $(cut -d '/' -f 2 <<< "$GITHUB_REPOSITORY") \
+                   --package-path .cr-release-packages \
+                   --token $CR_TOKEN \
+                   --skip-existing=false
+
+          cr index --owner $(cut -d '/' -f 1 <<< "$GITHUB_REPOSITORY") \
+                  --git-repo $(cut -d '/' -f 2 <<< "$GITHUB_REPOSITORY") \
+                  --package-path .cr-release-packages \
+                  --index-path .cr-index/index.yaml \
+                  --token $CR_TOKEN
+
+      - name: Setup Pages
+        uses: actions/configure-pages@v4
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v2
+        with:
+          path: .cr-index
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v3
+
+      - name: Update gh-pages branch
+        run: |
+          git checkout gh-pages || git checkout --orphan gh-pages
+          git reset --hard
+          cp .cr-index/index.yaml index.yaml
+          cp .cr-release-packages/*.tgz .
+          git add index.yaml *.tgz
+          git commit -m "Update Helm repository" || echo "No changes to commit"
+          git push -f origin gh-pages
+
+      - name: Verify deployment
+        run: |
+          if [ ! -f ".cr-index/index.yaml" ]; then
+            echo "index.yaml was not created!"
+            exit 1
+          fi
+          echo "Current index.yaml content:"
+          cat .cr-index/index.yaml
