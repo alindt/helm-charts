@@ -1,0 +1,59 @@
+name: Release Charts
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "**/Chart.yaml"
+      - "**/values.yaml"
+      - "**/templates/**"
+
+jobs:
+  release:
+    permissions:
+      contents: write
+      packages: write
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Configure Git
+        run: |
+          git config user.name "$GITHUB_ACTOR"
+          git config user.email "$GITHUB_ACTOR@users.noreply.github.com"
+
+      - name: Install Helm
+        uses: azure/setup-helm@v4
+        with:
+          version: v3.13.3
+        env:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Create gh-pages branch if not exists
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          git fetch --all
+          if ! git branch -r | grep -q "origin/gh-pages"; then
+            git checkout --orphan gh-pages
+            git reset --hard
+            git commit --allow-empty -m "Create gh-pages branch"
+            git remote set-url origin "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+            git push origin gh-pages
+            git checkout main
+          fi
+
+      - name: Run chart-releaser
+        uses: helm/chart-releaser-action@v1.6.0
+        env:
+          CR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CR_SKIP_EXISTING: true
+          CR_PACKAGE_PATH: .deploy
+          CR_INDEX_PATH: index.yaml
+          CR_RELEASE_NAME_TEMPLATE: "{{ .Name }}-{{ .Version }}"
+          CR_PAGES_BRANCH: gh-pages

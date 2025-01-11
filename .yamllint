@@ -1,0 +1,31 @@
+extends: default
+
+rules:
+  line-length:
+    max: 500
+    level: warning
+    allow-non-breakable-words: true
+    allow-non-breakable-inline-mappings: true
+
+  # Optional: other commonly adjusted rules
+  comments:
+    min-spaces-from-content: 1
+
+  document-start:
+    present: false
+
+  truthy:
+    allowed-values: ["true", "false"]
+    check-keys: false
+
+  braces:
+    min-spaces-inside: 0
+    max-spaces-inside: 1
+
+  brackets:
+    min-spaces-inside: 0
+    max-spaces-inside: 1
+
+  indentation:
+    spaces: 2
+    indent-sequences: true
