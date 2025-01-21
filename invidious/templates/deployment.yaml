@@ -37,7 +37,6 @@ spec:
       initContainers:
         - name: wait-for-postgresql
           image: actions/pg_isready
-          imagePullPolicy: {{ .Values.image.pullPolicy }}
           command:
             - /bin/bash
             - -c
